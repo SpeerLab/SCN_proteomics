@@ -122,17 +122,6 @@ mSet<-SanityCheckData(mSet)
 
 # How different are the intensities between samples?
 
-## Correlation Between Samples
-<br>
-Let's compute the correlation between samples with all protein intensities (filtered for those proteins which are quantified in more than 3 samples) to get a sense of any global correlation patterns. 
-
-```{r}
-cor_samples <- prot_int_new %>%
-  select("P21_1", "P21_2", "P21_3", "P21_4", "P8_1", "P8_2", "P8_3", "P8_4", "P8_5") %>%
-  cor()
-corrplot(cor_samples, method="circle")
-```
-
 <br>
 Overall, it seems like really our samples are pretty similar. Sample P21_4 has an overall (slightly) lower correlation with all other samples, so may be something to watch out for. 
 
@@ -149,6 +138,27 @@ mSet<-PlotNormSummary(mSet, "norm_0_", "png", 72, width=NA)
 mSet<-PlotSampleNormSummary(mSet, "snorm_0_", "png", 72, width=NA)
 ```
 
+# Correlation Between Samples
+<br>
+Let's compute the correlation between samples with all protein intensities (filtered for those proteins which are quantified in more than 3 samples) to get a sense of any global correlation patterns. 
+
+```{r}
+norm_subset_full <- mSet$dataSet$norm %>% 
+  t() %>%
+  as.matrix()
+
+cor_samples_full <- norm_subset_full %>%
+  cor()
+
+corrplot(cor_samples_full, method="circle", order="hclust", 
+         tl.col = c(rep("#68A3FF", 4), 
+                    rep("#FF9D27", 5)),
+          col = COL2('PiYG', 10),
+          tl.cex = 1.25,
+         addrect = 2)
+```
+
+We see the hierarchical clustering does separate the P8 from the P21 samples based on all the normalized protein intensities, but the distinctness of each timepoint is not abundantly clear. 
 
 # PCA calculation and plotting
 ```{r}
