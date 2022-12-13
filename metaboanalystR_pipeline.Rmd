@@ -430,20 +430,6 @@ gprofiler_up$go[order(gprofiler_up$go$recall, decreasing = TRUE), ] %>%
 ```
 
 
-```{r}
-gprofiler_p08 <- gprofiler_down$go[order(gprofiler_down$go$recall, decreasing = TRUE),] %>%
-  select("p.value", "recall", "overlap.size", "term.name", "intersection")
-
-P08terms <- c("myosin II filament", 
-              "growth cone", 
-              "microtubule motor activity", 
-              "regulation of axonogenesis",
-              "axon development",
-              "developmental cell growth",
-              "positive regulation of neuron projection development")
-```
-
-
 ## Write the GSEA results to an excel file
 
 ```{r}
