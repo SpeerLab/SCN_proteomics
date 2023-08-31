@@ -71,7 +71,6 @@ library("ggrepel")
 library("httr")
 library("plyr")
 library("gprofiler2")
-library("hpgltools")
 library("corrplot")
 library("RColorBrewer")
 library("patchwork")
@@ -91,14 +90,16 @@ my_colors <- c("#ff00ff", "#ed00ed", "#d600d6", "#c200c2", "#a600a6", "#820082",
 This metaboanalyst pipeline follows the vignette for data processing, DE, and GSEA. We first initialize an mSet, read in the data, and use the SanityCheckData() function to compute missingness, number of groups, and other sanity checks.
 
 ```{r}
-prot_label_mapped <- read.xlsx("datasets/TotalProteinlist.xlsx", sheetIndex = 1)
+prot_label_mapped <- read.xlsx("datasets/SCN_LFQintensities_withgenenames.xlsx", 
+                               sheetIndex = 1)
 ```
 
 
 <br>
 ```{r}
-mSet<-InitDataObjects("conc", "stat", FALSE)
-mSet<-Read.TextData(mSet, "datasets/TotalProteinlist_metaboanalyst.csv", "colu", "disc")
+mSet<-InitDataObjects("pktable", "stat", FALSE)
+mSet<-Read.TextData(mSet, "datasets/SCN_LFQintensities.csv", "colu", "disc")
+#mSet<-Read.TextData(mSet, "Proteingroups_intensity", "colu", "disc")
 mSet<-SanityCheckData(mSet)
 ```
 
@@ -106,17 +107,16 @@ mSet<-SanityCheckData(mSet)
 
 # Normalization and Filtering
 
-We need to now normalize. We will use quantile normalization for row (protein across samples) normalization, will log_10 the values, and mean center. 
+We need to now normalize. We will use median normalization for row (protein across samples) normalization, will cube root the values, and mean center. 
 
 ```{r}
 mSet<-ReplaceMin(mSet) # impute 0 values to remove missing values with 1/5 of the min positive values for their corresponding samples (MetaboanalsytR's default imputation method)
-mSet<-FilterVariable(mSet, "none", "F", 25)
+mSet<- FilterVariable(mSet, "none", "F", 25)
 mSet<-PreparePrenormData(mSet)
-mSet<-Normalization(mSet, rowNorm = "QuantileNorm", "LogNorm", "MeanCenter", ratio=FALSE, ratioNum=20) #normalize and scale data
+mSet<-Normalization(mSet, rowNorm = "QuantileNorm", "LogNorm", "MeanCenter", ratio=FALSE) #normalize and scale data
 mSet<-PlotNormSummary(mSet, "norm_0_", "png", 72, width=NA)
 mSet<-PlotSampleNormSummary(mSet, "snorm_0_", "png", 72, width=NA)
 ```
-
 
 # PCA calculation and plotting
 
@@ -159,7 +159,12 @@ pca <- ggplot(pca_score, aes(x = PC1, y = PC2, col = Time)) +
         title = element_text(size=16),
         legend.position = "none") 
 
+#setEPS()
+#postscript("figures/pcascores_NEW.eps")
 pca
+#dev.off()
+
+mSet$dataSet
 ```
 <br>
 
@@ -175,19 +180,24 @@ We first compute the fold change between P8 and P21 for each protein, then compu
 <br>
 
 ```{r}
-mSet <- FC.Anal(mSet, 2.0, 1)
+mSet <- FC.Anal(mSet, 0, 0)
 mSet <- PlotFC(mSet, "fc_0_", "png", 72, width=NA)
 
 mSet <- Ttests.Anal(mSet, threshp = 0.05, paired = FALSE)
 mSet <- PlotTT(mSet, "tt_0_", "png", 72, width=NA)
+
 ```
 
 <br>
 Now, we can combine the fold change results and the t-test results to create a volcano plot to visualize the DE results.
 
 ```{r}
+prot_label_mapped <- prot_label_mapped %>%
+  filter(Protein_ID %in% names(mSet$analSet$tt$p.log))
+
 volc_df <- as.data.frame(cbind("accession_id" = names(mSet$analSet$tt$p.log), 
                                "genename" = prot_label_mapped$Gene.Name,
+                               "protein_name" = prot_label_mapped$Protein.Name,
                                "adj.p" = mSet$analSet$tt$p.value,
                                "log.adj.p" = mSet$analSet$tt$p.log,
                                "log2_FC" = mSet$analSet$fc$fc.log)) #create data frame which combines all the needed information to plot
@@ -205,7 +215,7 @@ my_y_lab <- bquote(paste("-Log"[10],"(", italic("p"), ")"))
 my_x_lab <- bquote(paste("-Log"[2],"(P21/P8 Fold Change)"))
 
 p <- ggplot(volc_df, aes(x = log2_FC, y = log.adj.p, label = genename)) + 
-  geom_point(aes(colour = Significance)) + 
+  geom_point(aes(colour = Significance), size = 3) + 
   geom_vline(xintercept = c(-1,1)) +
   geom_hline(yintercept = -log10(.05)) +
   theme_classic() +
@@ -215,21 +225,17 @@ p <- ggplot(volc_df, aes(x = log2_FC, y = log.adj.p, label = genename)) +
 ```
 
 
+
 ```{r}
-genes <- c("Sparcl1", "Plxnc1", #"Gabarapl2", "Dlg1", "Ncam2", "Ykt6", 
-           "Dcx", #"Astn1", "Efnb3", "Pclo", 
-           "Syap1", #"Ptn", "Daam1", 
-           #"Cadm4", "Lmnb1", "Rtn4", #"Nsg2", "Dpysl5", 
-           "Nectin1", #"Map1b", 
-           #"Ctnna2", "Ntm", "Stx1a", "Thy1", "Cmtm5",
-           "Syn1", #"Slc6a11", "Gad2", 
-           #"Adam23", 
-           "Sv2a", "Tnr", #"Ptprn2", "Ctsb", "Gripap1", "Slc17a6", 
-           "Igsf8", 
+genes <- c("Syn1",
+           "Sv2a", 
            "Mbp",
-           "Plp1", 
-           #"Slc25a46",
-           "Dpysl3")
+           "Ykt6", 
+           "Vim",
+           "Efnb3",
+           "Slc25a4", 
+           "Map1b",
+           "Kif5c")
 
 volcano_plot <- p + geom_label_repel(data=filter(volc_df, (genename %in% genes)), nudge_x = -.1, 
                      nudge_y = .45, max.overlaps =20) + 
@@ -243,9 +249,9 @@ volcano_plot <- p + geom_label_repel(data=filter(volc_df, (genename %in% genes))
 
 
 volcano_plot
-
-#ggsave(volcano_plot, filename = "volcanoplot.eps", width = 5, height = 7, device = cairo_ps)
+ggsave(volcano_plot, filename = "figures/volcanoplot_NEW.eps", width = 7, height = 7, device = cairo_ps)
 ```
+
 
 # PCA Loadings
 
@@ -256,32 +262,36 @@ pca_loadings <- as.data.frame(cbind(pca_loadings,
                                     "Significance" = volc_df$Significance,
                                     "accession_id" = names(mSet$analSet$tt$p.log), 
                                     "genename" = prot_label_mapped$Gene.Name))
-
 pca_loads_plot <- ggplot(pca_loadings %>% arrange(Significance), aes(x = as.numeric(PC1), y = as.numeric(PC2), 
                                                           color = Significance, 
                                                           label = genename)) + 
   geom_point(size = 3) +
   theme_classic() +
-  scale_color_manual(values=c('#F5F5F5',"#FF9D27", "#68A3FF"))
+  scale_color_manual(values=c('Grey',"#FF9D27", "#68A3FF"))
 
-pca_loads_plot <- pca_loads_plot  + geom_label_repel(data=filter(pca_loadings, (genename %in% genes)), 
-                        max.overlaps =20,
-                        color = "black") +
-  labs(x = "PC Loadings 1", y = "PC Loadings 2") +
+
+pca_loads_plot <- pca_loads_plot  + geom_label_repel(data=filter(pca_loadings, (genename %in% genes)),
+                     nudge_y = .02, max.overlaps =20, color = "black") +
+  #labs(x = "PC Loadings 1", y = "PC Loadings 2") +
   theme(axis.text=element_text(size=12),
         axis.title=element_text(size=16),
         legend.text=element_text(size=10),
         legend.title = element_text(size=14),
         title = element_text(size=16),
-        legend.position = "none") 
+        legend.position = "none") +
+  xlab("PC1 Loadings") +
+  ylab("PC2 Loadings")
 
+#setEPS()
+#postscript("figures/pcaloadings_NEW.eps")
 pca_loads_plot
+#dev.off()
 ```
 
 
 # Plot Heatmap
 <br>
-To visualize the proteomic abundances in each sample for the signifcantly DE proteins, we can create a heatmap. We will use thresholds of FDR adjusted p-value <= .05 and log2 fold change > 1 as significance cutoffs. <br>
+To visualize the proteomic abundances in each sample for the significantly DE proteins, we can create a heatmap. We will use thresholds of FDR adjusted p-value <= .05 and log2 fold change > 1 as significance cutoffs. <br>
 
 
 ```{r}
@@ -297,14 +307,20 @@ norm_subset <- mSet$dataSet$norm[, keepers] %>% #subset significant DE genes lis
   head(n=200) %>%
   as.matrix()
 
-colnames(norm_subset) <- c("P8 Bio Rep 1", "P8 Bio Rep 2", "P8 Bio Rep 3", "P8 Bio Rep 4", "P8 Bio Rep 5", "P21 Bio Rep 1", "P21 Bio Rep 2", "P21 Bio Rep 3", "P21 Bio Rep 4")
+colnames(norm_subset) <- c("P21 Bio Rep 1", "P21 Bio Rep 2", "P21 Bio Rep 3", "P21 Bio Rep 4", "P8 Bio Rep 1", "P8 Bio Rep 2", "P8 Bio Rep 3", "P8 Bio Rep 4", "P8 Bio Rep 5")
+```
+
+```{r}
+volc_df_sig %>%
+  select(accession_id, protein_name, genename, log2_FC, adj.p, log.adj.p) %>%
+  write.xlsx(file = "SCNproteomics_DEsig_20230831.xlsx")
 ```
 
 
 ```{r}
 my_colors <- brewer.pal(9, "Greys")
-#setEPS()
-#postscript("figures/DE_heatmap_bluescale.eps")
+setEPS()
+postscript("figures/DE_heatmap_greyscale_NEW.eps")
 heatmap.2(norm_subset, 
           trace='none', 
           dendrogram=c("col"), 
@@ -314,13 +330,16 @@ heatmap.2(norm_subset,
           #cexRow = 1.5,  
           main = "Normalized Protein Abundance", 
           labRow = FALSE, 
-          srtCol=45,  
+          srtCol=0,  
           adjCol = c(1,1), 
           ylab = "DE Proteins", 
           #margins = c(8, 3),
           density.info="none",
-          ColSideColors = c(rep("#FF9D27", 5), rep("#68A3FF", 4))) #create a heatmap of the DE genes
-#dev.off()
+          ColSideColors = c(rep("#68A3FF", 4), rep("#FF9D27", 5)), labCol = "Biological Replicates", 
+          cexRow = 14, 
+          cexCol = 2
+          ) #create a heatmap of the DE genes
+dev.off()
 ```
 
 # Correlation Between Samples Using DE Genes
@@ -332,15 +351,15 @@ my_colors <- brewer.pal(8, "Greys")
 cor_samples <- norm_subset %>%
   cor()
 
-#setEPS()
-#postscript("figures/corrplot_DEgenes_greyscale.eps")
+setEPS()
+postscript("figures/corrplot_DEgenes_greyscale_NEW.eps")
 corrplot(cor_samples, method="circle", order="hclust", 
          tl.col = c(rep("#68A3FF", 4), 
                     rep("#FF9D27", 5)),
           col = my_colors,
           tl.cex = 1.25,
          addrect = 2)
-#dev.off()
+dev.off()
 ```
 
 # Creat Input for Pathview
@@ -364,7 +383,6 @@ pathview_df <- pv_df_merged %>%
 
 
 
-
 ## Write DE Datasets to files 
 
 This will create 3 different files.
@@ -375,13 +393,20 @@ This will create 3 different files.
 
 
 ```{r, eval = FALSE}
-desc <- prot_int_old %>%
-  select("Protein.Name", "Accession.ID")
+PICALM, NAFSC, NDUFB1, NDUFS4, SUCLA2, and VDAC2
+volc_df %>%
+  DT::datatable()
 
-write.xlsx(volc_df_sig, file = "datasets/ipRGC_proteomics_sigDE.xlsx", sheetName = "P8_vs_P21") #write significant DE results
-volc_df_desc <- merge(volc_df, desc, by.x = "accession_id", by.y = "Accession.ID") #add protein descriptions as field in the DE results to write to xlsx
-write.xlsx(volc_df_desc, file = "datasets/DEres_ALL_descriptions.xlsx", sheetName = "P08vP21") #write all DE results w/ description
-write.csv(pathview_df, file =  "datasets/ipRGC_proteomics_pathview_input.csv", quote = FALSE) #write pathview input sheet
+volc_df %>%
+  filter(adj.p <= .05 & abs(log2_FC) > 1) %>%
+write.xlsx(file = "excel/SCNproteomics_sigDE_p21vp8_NEW.xlsx")
+
+write.xlsx(volc_df, file = "excel/SCNproteomics_DE_p21vp8_NEW.xlsx")
+
+volc_df %>%
+  filter(adj.p > .05 & adj.p <= .1 & abs(log2_FC) > 1) %>%
+write.xlsx(file = "excel/SCNproteomics_sigDE_p21vp8_filteredNEW.xlsx")
+
 ```
 
 
@@ -429,17 +454,144 @@ gprofiler_up$go[order(gprofiler_up$go$recall, decreasing = TRUE), ] %>%
   knitr::kable("simple", row.names = FALSE, caption = "P21 Enriched GO Terms")
 ```
 
-
 ## Write the GSEA results to an excel file
 
 ```{r}
 gprofiler_down[["go"]] %>%
    select("term_name", "recall", "p_value", "intersection_size", "intersection") %>%
-  write.xlsx(file = "datasets/SCNProteomics_GSEA_2022_P8.xlsx", sheetName = "P8")
+  write.xlsx(file = "datasets/SCNProteomics_GSEA_P8_2022_NEW.xlsx", sheetName = "P8")
 
 gprofiler_up[["go"]] %>%
    select("term_name", "recall", "p_value", "intersection_size", "intersection") %>%
-  write.xlsx(file = "datasets/SCNProteomics_GSEA_2022.xlsx", sheetName = "P21")
+  write.xlsx(file = "datasets/SCNProteomics_GSEA_2022_NEW.xlsx", sheetName = "P21")
+```
+
+
+
+# Figure 4
+
+For these new plots, I have pulled genes from GO terms which are significantly enriched in one timepoint. I pulled GO terms which group together to make similar type of functions. The first group of genes I have deemed "growth associated genes" and this list comes from genes from the following GO terms: <br>
+dendritic transport <br>
+growth cone (Cxadr,Twf2,Kif5c,Mapt,Dclk1,Rac3,Map1b,Myh10,Dctn2,Dpysl3,Nectin1,Rasgrf1) <br>
+transport along microtubule (Kif5c,Mapt,Map1b,Sfpq,Cdc42,Arl8a,Hnrnpu)<br>
+Regulation of Axonogenesis (Twf2,Plxna1,Mapt,Map1b,Picalm) <br>
+Regulation of Neuron Projection Development (Twf2,Plxna1,Ctnna2,Mapt,Ndrg4,Map1b,Ranbp1,Rtn4,Vim,Dpysl3,Efnb3,Hnrnpk,Picalm,Dpysl5) <br>
+
+```{r}
+newgrowth_genes <- tolower(unique(c("Cxadr","Twf2","Kif5c","Dclk1","Rac3","Map1b","Myh10","Dctn2","Dpysl3", "Cdc42", "Plxna1","Map1b","Ctnna2","Vim","Efnb3","Dpysl5","Vat1", "Lmnb1", "P4hb", "Ykt6")))
+
+growth_genes <- tolower(unique(c("MYH10","MYH9", "KIF5B", "ARPC5", "RTN4", "MYH10", "NIN", "CXADR", "APP", "TWF2", "MAPK8IP3", "DPYSL3", "DCTN2", "KIF5C", "DYNC1I2", "CDK5","FKBP4","DCX","NECTIN1","CTNND1","MAP1B","PCLO", "KIF5B", "KIF19", "MYH10", "KIF2A", "MYH9", "KIF5C", "DYNC1I2", "MYO6", "DNAH8", "KIF21B", "EFNB3","RTN4","NIN","TWF2","VIM","CDK5","DCX", "MAP1B","ARHGAP35", "PLXNC1", "RTN4", "NF1", "NIN", "ITSN1", "TWF2", "DPYSL3", "PTN", "CASK","DCX","NDRG4","MAP1B","ARHGAP35","PLXNC1","PCP4")))
+
+
+keepers <- prot_label_mapped[tolower(prot_label_mapped$Gene.Name) %in% newgrowth_genes, c("Protein_ID", "Gene.Name")]
+norm_subset <- mSet$dataSet$norm[, keepers$Protein_ID] %>% #subset significant DE genes list
+  t() %>%
+  as.matrix()
+
+colnames(norm_subset) <- c("P21 Biological Rep 1", "P21 Biological Rep 2", "P21 Biological Rep 3", "P21 Biological Rep 4", "P8 Biological Rep 1", "P8 Biological Rep 2", "P8 Biological Rep 3", "P8 Biological Rep 4", "P8 Biological Rep 5")
+
+growth_genes_mean <- data.frame(row.names = keepers$Gene.Name)
+growth_genes_mean$P8_means <- norm_subset %>%
+  as.data.frame() %>%
+  select("P8 Biological Rep 1", "P8 Biological Rep 2", "P8 Biological Rep 3", "P8 Biological Rep 4", "P8 Biological Rep 5") %>%
+  rowMeans()
+
+growth_genes_mean$P21_means <- norm_subset %>%
+  as.data.frame() %>%
+  select("P21 Biological Rep 1", "P21 Biological Rep 2", "P21 Biological Rep 3", "P21 Biological Rep 4") %>%
+  rowMeans()
+
+colnames(growth_genes_mean) <- c("P8 Mean", "P21 Mean")
+```
+
+
+```{r}
+setEPS()
+postscript("figures/growth_associated_genes_greyscale_NEW.eps")
+heatmap.2(as.matrix(growth_genes_mean), 
+          trace='none', 
+          dendrogram=c("none"), 
+          Rowv = FALSE,
+          Colv = FALSE,
+          #scale = "col", 
+          col= gray.colors(20, rev = TRUE), 
+          cexCol = .9, 
+          cexRow = .9,  
+          #main = "Normalized Protein Abundance", 
+          #labRow = FALSE, 
+          srtCol=45,  
+          adjCol = c(1,1), 
+          ylab = "Growth Associated Genes",  
+          margins = c(6, 8),
+          density.info="none",
+          ColSideColors = c(rep("#FF9D27", 1), rep("#68A3FF", 1))) #create a heatmap of the top variable genes
+dev.off()
+```
+
+
+<br>
+Now for the GSEA GO terms which are enriched at the P21 timepoint.
+I chose the following GO terms: <br>
+synaptic vesicle priming <br>
+synaptic vesicle membrane <br>
+synaptic vesicle <br>
+presynapse <br>
+
+```{r}
+newmaturity_genes <- tolower(unique(c("Atp6v0c","Baiap3","Sv2a","Glul","Atp6v0d1", "Syn2","Wdr7","Syn1","Vdac3", "Vdac1","Ap2b1", "Cmtm5", "Mbp", "Cnp", "Plp1", "Tppp", "Ap2a1")))
+
+maturity_genes <- tolower(unique(c("CKMT1","ENO2","CNP","SLC25A5","DLD","TPPP","GLUL","SLC25A12","LDHB","UQCRC2","PLP1","SLC25A4","THY1","SYN1","MBP","PHGDH","TPRG1L","SYN1", "STX1A","VDAC1","VDAC2","GAD2","TPRG1L","SV2A","VDAC3","GOT1","GAD2","FKBP1A","CTBP1","PACSIN1","WDR7","KCNJ10","BAIAP3","PTPRN2")))
+
+keepers <- prot_label_mapped[tolower(prot_label_mapped$Gene.Name) %in% newmaturity_genes, c("Protein_ID", "Gene.Name")]
+norm_subset <- mSet$dataSet$norm[, keepers$Protein_ID] %>% #subset significant DE genes list
+  t() %>%
+  as.matrix()
+
+colnames(norm_subset) <- c("P21 Biological Rep 1", "P21 Biological Rep 2", "P21 Biological Rep 3", "P21 Biological Rep 4", "P8 Biological Rep 1", "P8 Biological Rep 2", "P8 Biological Rep 3", "P8 Biological Rep 4", "P8 Biological Rep 5")
+
+mature_genes_mean <- data.frame(row.names = keepers$Gene.Name)
+mature_genes_mean$P8_means <- norm_subset %>%
+  as.data.frame() %>%
+  select("P8 Biological Rep 1", "P8 Biological Rep 2", "P8 Biological Rep 3", "P8 Biological Rep 4", "P8 Biological Rep 5") %>%
+  rowMeans()
+
+mature_genes_mean$P21_means <- norm_subset %>%
+  as.data.frame() %>%
+  select("P21 Biological Rep 1", "P21 Biological Rep 2", "P21 Biological Rep 3", "P21 Biological Rep 4") %>%
+  rowMeans()
+
+colnames(mature_genes_mean) <- c("P8 Mean", "P21 Mean")
+
+```
+
+
+```{r}
+setEPS()
+postscript("figures/synapse_associated_genes_greyscaleNEW.eps")
+heatmap.2(as.matrix(mature_genes_mean), 
+          trace='none', 
+          dendrogram=c("none"), 
+          Rowv = FALSE,
+          Colv = FALSE,
+          #scale = "col", 
+          #col= my_colors, 
+          col = gray.colors(20, rev = TRUE),
+          #cexCol = 1.5, 
+          cexRow = .7, 
+          #scale = "col",
+          #main = "Normalized Protein Abundance", 
+          #labRow = FALSE,
+          labCol = FALSE,
+          #srtCol=45,  
+          #adjCol = c(1,1), 
+          ylab = "Synapse Associated Genes",  
+          margins = c(6, 8),
+          density.info="none",
+          #ColSideColors = c(rep("#FF9D27", 1), rep("#68A3FF", 1)),
+          key = FALSE,
+          lhei = c(1,9),
+          lwid = c(0.25,4)) #create a heatmap of the top variable genes
+dev.off()
 ```
 
 
